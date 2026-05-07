@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>疊疊樂數字辨識</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;700&display=swap');
+        
+        :root {
+            --a4-w: 210mm;
+            --a4-h: 296.5mm; /* 微縮 0.5mm 確保不觸發額外分頁 */
+            --sidebar-w: 320px;
+        }
+
+        body {
+            font-family: 'Noto Sans TC', sans-serif;
+            background-color: #f1f5f9;
+            margin: 0;
+            padding: 0;
+            -webkit-print-color-adjust: exact;
+        }
+
+        /* 側邊欄控制 */
+        #sidebar {
+            width: var(--sidebar-w);
+            transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            z-index: 100;
+        }
+        #sidebar.collapsed { transform: translateX(-100%); }
+        #main-content { transition: margin-left 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
+
+        .preview-container {
+            width: var(--a4-w);
+            height: var(--a4-h);
+            background: white;
+            margin: 30px auto;
+            padding: 12mm 12mm 15mm 12mm; /* 底部預留解答空間 */
+            box-sizing: border-box;
+            position: relative;
+            overflow: hidden; 
+            display: flex;
+            flex-direction: column;
+            clear: both;
+        }
+
+        /* 關鍵：改用 before 控制分頁，第一頁不分頁 */
+        #pdf-root .preview-container:not(:first-child) {
+            page-break-before: always;
+        }
+
+        /* 題目網格佈局 */
+        .question-grid {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 5mm;
+            width: 100%;
+            flex-grow: 1;
+            grid-auto-rows: 1fr;
+        }
+
+        .question-card {
+            border: 1.5px solid #cbd5e1;
+            padding: 3mm;
+            border-radius: 8px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            position: relative;
+            background: #fff;
+            box-sizing: border-box;
+            overflow: hidden;
+            justify-content: space-between;
+        }
+
+        /* 填寫區樣式優化 */
+        .answer-box {
+            background-color: white;
+            position: relative;
+            z-index: 10;
+            margin-top: auto;
+            width: 100%;
+            display: flex;
+            justify-content: center;
+            gap: 2mm;
+            padding-top: 2mm;
+            border-top: 1px dashed #e2e8f0;
+        }
+
+        .answer-slot {
+            width: 9mm;
+            height: 9mm;
+            border: 1.5px solid #cbd5e1;
+            border-radius: 4px;
+            background-color: #f8fafc;
+        }
+
+        /* 解答區底部樣式 */
+        .page-footer-answers {
+            margin-top: 5mm;
+            padding-top: 3mm;
+            border-top: 1px solid #f1f5f9;
+            text-align: center;
+            color: #cbd5e1; /* 淺灰色 */
+            font-size: 11px;
+            display: flex;
+            justify-content: center;
+            flex-wrap: wrap;
+            gap: 4mm;
+        }
+
+        @media print {
+            .no-print { display: none !important; }
+            body { background: white; margin: 0; padding: 0; }
+            .preview-container {
+                margin: 0 auto !important;
+                box-shadow: none !important;
+                border: none !important;
+            }
+        }
+
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 10px; }
+    </style>
+</head>
+<body class="flex min-h-screen text-slate-800">
+
+    <aside id="sidebar" class="fixed top-0 left-0 h-full bg-white shadow-2xl overflow-y-auto no-print">
+        <div class="p-6 flex flex-col min-h-full">
+            <div class="flex items-center justify-between mb-8">
+                <h2 class="text-2xl font-bold text-indigo-600 flex items-center gap-2">
+                    <span class="p-2 bg-indigo-50 rounded-lg">⚙️</span> 排版設定
+                </h2>
+                <button onclick="toggleSidebar()" class="p-2 text-slate-400 hover:text-slate-600 transition-colors">
+                    <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M11 19l-7-7 7-7m8 14l-7-7 7-7" />
+                    </svg>
+                </button>
+            </div>
+
+            <div class="space-y-6 flex-grow">
+                <div>
+                    <label class="block text-sm font-bold text-slate-700 mb-2">每頁題目數量</label>
+                    <select id="itemsPerPage" onchange="generateGame()" class="w-full px-4 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none">
+                        <option value="2">2 題 (超大)</option>
+                        <option value="4">4 題 (適合老花)</option>
+                        <option value="6" selected>6 題 (標準)</option>
+                        <option value="8">8 題 (較密集)</option>
+                        <option value="10">10 題 (高難度)</option>
+                    </select>
+                </div>
+
+                <div>
+                    <label class="block text-sm font-bold text-slate-700 mb-2">產生總題數</label>
+                    <input type="number" id="qTotal" value="6" min="1" max="100" oninput="updateInfo()"
+                        class="w-full px-4 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none">
+                </div>
+
+                <div>
+                    <label class="block text-sm font-bold text-slate-700 mb-1">每題數字個數：<span id="dCountVal" class="text-indigo-600">3</span></label>
+                    <input type="range" id="dCount" value="3" min="2" max="6" oninput="updateDigitVal()"
+                        class="w-full h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-600">
+                </div>
+
+                <div>
+                    <label class="block text-sm font-bold text-slate-700 mb-2">字體大小 (px)</label>
+                    <input type="number" id="fSize" value="100" min="60" max="250" oninput="generateGame()"
+                        class="w-full px-4 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none">
+                </div>
+
+                <div>
+                    <label class="block text-sm font-bold text-slate-700 mb-1">重疊難度</label>
+                    <div class="flex items-center gap-2">
+                        <span class="text-xs text-slate-400 font-bold">易</span>
+                        <input type="range" id="chaos" value="50" min="0" max="100" oninput="generateGame()"
+                            class="flex-1 h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-600">
+                        <span class="text-xs text-slate-400 font-bold">難</span>
+                    </div>
+                </div>
+
+                <div id="capacityInfo" class="p-4 bg-indigo-50 rounded-xl border border-indigo-100">
+                    <p id="infoText" class="text-xs text-indigo-700 leading-relaxed font-medium">載入中...</p>
+                </div>
+
+                <div class="pt-4 space-y-3">
+                    <button onclick="generateGame()" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-xl shadow-lg transition-all active:scale-95">
+                        重新生成題目
+                    </button>
+                    <button id="dlBtn" onclick="exportPDF()" class="w-full bg-slate-800 hover:bg-slate-900 text-white font-bold py-3 rounded-xl shadow-lg transition-all flex items-center justify-center gap-2">
+                        <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                        </svg>
+                        下載 PDF 檔案
+                    </button>
+                </div>
+            </div>
+
+            <div class="mt-8 pt-6 border-t border-slate-100 text-center">
+                <p class="text-xs text-slate-400 mb-1 font-medium tracking-wide">
+                    設計：<a href="https://www.facebook.com/mpotkevin" target="_blank" class="text-indigo-500 hover:text-indigo-700 hover:underline transition-all font-bold">職能治療師 - 鄭凱文</a>
+                </p>
+                <p class="text-[9px] text-slate-300">© 2026 Elderly Cognitive Training Tool</p>
+            </div>
+        </div>
+    </aside>
+
+    <main id="main-content" class="flex-1 ml-[320px] max-lg:ml-0 p-4 transition-all overflow-y-auto">
+        <button id="toggleBtn" onclick="toggleSidebar()" class="fixed top-4 left-4 p-3 bg-white shadow-lg rounded-full text-indigo-600 no-print hidden hover:bg-indigo-50 transition-colors">
+            <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
+            </svg>
+        </button>
+
+        <div id="pdf-root" class="flex flex-col items-center w-full">
+            <!-- 頁面內容動態注入 -->
+        </div>
+    </main>
+
+    <script>
+        const COLORS = ['#E11D48', '#2563EB', '#059669', '#D97706', '#7C3AED', '#DB2777', '#0891B2', '#EA580C'];
+        let isCollapsed = false;
+
+        function toggleSidebar() {
+            const sb = document.getElementById('sidebar');
+            const mc = document.getElementById('main-content');
+            const tb = document.getElementById('toggleBtn');
+            isCollapsed = !isCollapsed;
+            
+            sb.classList.toggle('collapsed', isCollapsed);
+            
+            if (window.innerWidth >= 1024) {
+                mc.style.marginLeft = isCollapsed ? '0' : '320px';
+            } else {
+                mc.style.marginLeft = '0';
+            }
+            
+            tb.classList.toggle('hidden', !isCollapsed);
+        }
+
+        function updateDigitVal() {
+            document.getElementById('dCountVal').innerText = document.getElementById('dCount').value;
+            generateGame();
+        }
+
+        function updateInfo() {
+            const q = parseInt(document.getElementById('qTotal').value) || 1;
+            const perPage = parseInt(document.getElementById('itemsPerPage').value);
+            const pages = Math.ceil(q / perPage);
+            document.getElementById('infoText').innerHTML = `
+                • 每頁 A4 將排列 <b>${perPage}</b> 題。<br>
+                • 總計生成 <b>${pages}</b> 頁內容。
+            `;
+            return perPage;
+        }
+
+        function drawNumbers(digits, fSize, chaosLevel, containerH) {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            
+            const w = 300;
+            const h = Math.max(140, containerH - 120); 
+            
+            const dpr = 2;
+            canvas.width = w * dpr;
+            canvas.height = h * dpr;
+            canvas.style.width = `${w}px`;
+            canvas.style.height = `${h}px`;
+            ctx.scale(dpr, dpr);
+
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            
+            // 重要：同步縮放檢核
+            const scaleDown = Math.min(1, (h * 0.8) / fSize);
+            const finalFSize = fSize * scaleDown;
+            ctx.font = `bold ${finalFSize}px "Arial", sans-serif`;
+
+            const cx = w/2, cy = h/2;
+            
+            // 核心修正：當 chaos 為 0 時，半徑必須足以讓數字完全不重疊
+            // 同時受字體大小影響，字體愈大，safeR 的範圍就必須愈接近邊緣
+            // 使用 (finalFSize * 0.6) 作為邊界緩衝
+            const safeRX = (w / 2) - (finalFSize * 0.5);
+            const safeRY = (h / 2) - (finalFSize * 0.5);
+            
+            // chaosLevel 0 = 簡單 = 擴散到邊緣
+            // chaosLevel 100 = 困難 = 匯聚到中心
+            const spreadRatio = (1 - (chaosLevel / 100));
+
+            const colors = [...COLORS].sort(() => Math.random() - 0.5);
+
+            digits.forEach((d, i) => {
+                ctx.save();
+                // 使用環狀分佈，並根據寬高比進行橢圓偏移，以最大化拉開距離
+                const angle = (i / digits.length) * Math.PI * 2;
+                let px = cx + Math.cos(angle) * safeRX * spreadRatio;
+                let py = cy + Math.sin(angle) * safeRY * spreadRatio;
+
+                // 隨機抖動也與 chaos 有關， chaos 為 0 時抖動應極小
+                const jitter = (chaosLevel / 100) * (finalFSize * 0.3);
+                px += (Math.random() - 0.5) * jitter;
+                py += (Math.random() - 0.5) * jitter;
+
+                // 旋轉角度也隨難度增加
+                const rotation = (Math.random() - 0.5) * (chaosLevel / 100) * Math.PI;
+
+                ctx.translate(px, py);
+                ctx.rotate(rotation);
+                ctx.globalAlpha = 0.85;
+                ctx.fillStyle = colors[i % colors.length];
+                ctx.fillText(d, 0, 0);
+                ctx.restore();
+            });
+            return canvas;
+        }
+
+        function generateGame() {
+            const root = document.getElementById('pdf-root');
+            const qTotal = parseInt(document.getElementById('qTotal').value) || 0;
+            const dCount = parseInt(document.getElementById('dCount').value);
+            const fSize = parseInt(document.getElementById('fSize').value);
+            const chaos = parseInt(document.getElementById('chaos').value);
+            const perPage = updateInfo();
+
+            root.innerHTML = '';
+            let page, grid, pageAnswers = [];
+
+            for (let i = 0; i < qTotal; i++) {
+                if (i % perPage === 0) {
+                    // 如果有上一頁且有答案，先加入上一頁的解答
+                    if (page && pageAnswers.length > 0) {
+                        const footerAnswers = document.createElement('div');
+                        footerAnswers.className = "page-footer-answers";
+                        footerAnswers.innerHTML = `<span>解答區：</span>` + pageAnswers.map(ans => `<span>(${ans.qIdx}) ${ans.digits}</span>`).join('');
+                        page.appendChild(footerAnswers);
+                        pageAnswers = [];
+                    }
+
+                    page = document.createElement('div');
+                    page.className = 'preview-container';
+                    
+                    if (i === 0) {
+                        const header = document.createElement('div');
+                        header.className = "mb-4 border-b-4 border-indigo-600 pb-2";
+                        header.innerHTML = `
+                            <h1 class="text-2xl font-bold text-slate-800 uppercase tracking-normal">數字重疊挑戰遊戲</h1>
+                            <p class="text-slate-500 text-sm font-medium">規則：找出框中疊在一起的彩色數字，並填寫在空格中。</p>
+                        `;
+                        page.appendChild(header);
+                    }
+
+                    grid = document.createElement('div');
+                    grid.className = 'question-grid';
+                    page.appendChild(grid);
+                    root.appendChild(page);
+                }
+
+                // 隨機選取數字
+                const nums = [0,1,2,3,4,5,6,7,8,9].sort(()=>Math.random()-0.5).slice(0, dCount);
+                const sortedNums = [...nums].sort().join(', ');
+                pageAnswers.push({ qIdx: i + 1, digits: sortedNums });
+
+                const card = document.createElement('div');
+                card.className = "question-card";
+                
+                const cardLabel = document.createElement('div');
+                cardLabel.className = "w-full text-[9px] font-bold text-slate-400 uppercase text-left border-b border-slate-50 mb-1 pb-1";
+                cardLabel.innerText = `題目 ${i+1}`;
+                card.appendChild(cardLabel);
+
+                const rows = Math.ceil(perPage / 2);
+                const estimatedCardH = (260 / rows) * 3.5; 
+
+                card.appendChild(drawNumbers(nums, fSize, chaos, estimatedCardH));
+                
+                const footer = document.createElement('div');
+                footer.className = "answer-box";
+                footer.innerHTML = nums.map(() => `<div class="answer-slot"></div>`).join('');
+                card.appendChild(footer);
+
+                grid.appendChild(card);
+
+                // 如果是最後一題或當頁最後一題，也要加上解答
+                if (i === qTotal - 1) {
+                    const footerAnswers = document.createElement('div');
+                    footerAnswers.className = "page-footer-answers";
+                    footerAnswers.innerHTML = `<span>解答區：</span>` + pageAnswers.map(ans => `<span>(${ans.qIdx}) ${ans.digits}</span>`).join('');
+                    page.appendChild(footerAnswers);
+                }
+            }
+        }
+
+        async function exportPDF() {
+            const btn = document.getElementById('dlBtn');
+            const originalHtml = btn.innerHTML;
+            btn.innerHTML = `生成 PDF 中...`;
+            btn.disabled = true;
+
+            const element = document.getElementById('pdf-root');
+            const containers = document.querySelectorAll('.preview-container');
+
+            // 匯出前將捲動位置歸零以利截圖對齊
+            window.scrollTo(0,0);
+
+            // 暫時調整外距以確保截圖置中
+            containers.forEach((c) => {
+                c.style.margin = '0 auto';
+                c.style.display = 'block';
+            });
+
+            const opt = {
+                margin: 0,
+                filename: '數字辨識挑戰練習卷.pdf',
+                image: { type: 'jpeg', quality: 0.98 },
+                html2canvas: { 
+                    scale: 2, 
+                    useCORS: true, 
+                    width: 794,
+                    windowWidth: 794,
+                    x: 0,
+                    y: 0,
+                    scrollY: 0,
+                    scrollX: 0,
+                    logging: false
+                },
+                jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait', compress: true },
+                pagebreak: { mode: ['avoid-all', 'css', 'legacy'] }
+            };
+
+            try {
+                await html2pdf().set(opt).from(element).save();
+            } catch (e) {
+                console.error("PDF Export Error:", e);
+            } finally {
+                btn.innerHTML = originalHtml;
+                btn.disabled = false;
+                // 還原預覽邊距
+                containers.forEach(c => {
+                    c.style.margin = '30px auto';
+                });
+            }
+        }
+
+        window.addEventListener('resize', () => {
+            const mc = document.getElementById('main-content');
+            if (window.innerWidth >= 1024) {
+                mc.style.marginLeft = isCollapsed ? '0' : '320px';
+            } else {
+                mc.style.marginLeft = '0';
+            }
+        });
+
+        window.onload = () => {
+            generateGame();
+            if (window.innerWidth < 1024) {
+                isCollapsed = false; 
+                toggleSidebar();
+            }
+        };
+    </script>
+</body>
+</html>
