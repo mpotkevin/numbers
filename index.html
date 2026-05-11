@@ -10,8 +10,9 @@
         @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;700&display=swap');
         
         :root {
+            /* A4 比例 210:297 */
             --a4-w: 210mm;
-            --a4-h: 296.2mm; /* 精確縮減以避開 PDF 額外分頁 */
+            --a4-h: 296.2mm; /* 微縮以防止跨頁誤差 */
             --sidebar-w: 320px;
         }
 
@@ -31,22 +32,27 @@
         #sidebar.collapsed { transform: translateX(-100%); }
         #main-content { transition: margin-left 0.3s cubic-bezier(0.4, 0, 0.2, 1); }
 
-        /* A4 預覽容器 */
+        /* A4 容器：預覽時居中，列印時強制對稱 */
         .preview-container {
             width: var(--a4-w);
             height: var(--a4-h);
             background: white;
             margin: 30px auto;
-            padding: 10mm 12mm 15mm 12mm;
+            padding: 12mm 15mm 20mm 15mm; /* 左右保留 15mm，底部 20mm */
             box-sizing: border-box;
             position: relative;
             overflow: hidden; 
             display: flex;
             flex-direction: column;
-            clear: both;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
         }
 
-        /* 第一頁之後的頁面在匯出時強制分頁 */
+        /* 下載模式下的強制對稱設定 */
+        .export-mode .preview-container {
+            margin: 0 auto !important;
+            box-shadow: none !important;
+        }
+
         #pdf-root .preview-container:not(:first-child) {
             page-break-before: always;
         }
@@ -55,10 +61,10 @@
         .question-grid {
             display: grid;
             grid-template-columns: repeat(2, 1fr);
-            gap: 4mm;
+            gap: 5mm;
             width: 100%;
             flex-grow: 1;
-            grid-auto-rows: 1fr; /* 讓所有卡片高度均分 */
+            grid-auto-rows: 1fr;
         }
 
         .question-card {
@@ -72,7 +78,6 @@
             position: relative;
             background: #fff;
             box-sizing: border-box;
-            overflow: hidden;
         }
 
         /* 答案填寫框 */
@@ -82,42 +87,39 @@
             width: 100%;
             display: flex;
             justify-content: center;
-            gap: 1.5mm;
+            gap: 2mm;
             padding-top: 2mm;
             border-top: 1px dashed #e2e8f0;
         }
 
         .answer-slot {
-            width: 8.5mm;
-            height: 8.5mm;
+            width: 9mm;
+            height: 9mm;
             border: 1.5px solid #cbd5e1;
             border-radius: 4px;
             background-color: #f8fafc;
         }
 
-        /* 每頁底部的解答區 */
+        /* 頁面底部的解答區 */
         .page-footer-answers {
-            margin-top: 4mm;
-            padding-top: 3mm;
-            border-top: 1.5px solid #f8fafc;
+            margin-top: 5mm;
+            padding-top: 4mm;
+            border-top: 1px solid #f1f5f9;
             text-align: center;
-            color: #cbd5e1; /* 淺灰色 */
-            font-size: 11px;
+            color: #cbd5e1;
+            font-size: 12px;
             display: flex;
             justify-content: center;
             flex-wrap: wrap;
-            gap: 3mm;
+            gap: 4mm;
             font-weight: 400;
+            min-height: 10mm;
         }
 
         @media print {
             .no-print { display: none !important; }
-            body { background: white; margin: 0; padding: 0; }
-            .preview-container {
-                margin: 0 auto !important;
-                box-shadow: none !important;
-                border: none !important;
-            }
+            body { background: white; }
+            .preview-container { margin: 0 auto !important; box-shadow: none !important; }
         }
 
         ::-webkit-scrollbar { width: 6px; }
@@ -141,12 +143,12 @@
 
             <div class="space-y-6 flex-grow">
                 <div>
-                    <label class="block text-sm font-bold text-slate-700 mb-2">每頁題目數量 (最多 8 題)</label>
+                    <label class="block text-sm font-bold text-slate-700 mb-2">每頁題目數量</label>
                     <select id="itemsPerPage" onchange="generateGame()" class="w-full px-4 py-2 border border-slate-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none">
                         <option value="2">2 題</option>
                         <option value="4">4 題</option>
                         <option value="6" selected>6 題</option>
-                        <option value="8">8 題</option>
+                        <option value="8">8 題 (上限)</option>
                     </select>
                 </div>
 
@@ -171,15 +173,15 @@
                 <div>
                     <label class="block text-sm font-bold text-slate-700 mb-1">重疊難度</label>
                     <div class="flex items-center gap-2">
-                        <span class="text-xs text-slate-400 font-bold">易</span>
+                        <span class="text-xs text-slate-400 font-bold">易 (分開)</span>
                         <input type="range" id="chaos" value="50" min="0" max="100" oninput="generateGame()"
                             class="flex-1 h-2 bg-slate-200 rounded-lg appearance-none cursor-pointer accent-indigo-600">
-                        <span class="text-xs text-slate-400 font-bold">難</span>
+                        <span class="text-xs text-slate-400 font-bold">難 (疊合)</span>
                     </div>
                 </div>
 
                 <div id="capacityInfo" class="p-4 bg-indigo-50 rounded-xl border border-indigo-100">
-                    <p id="infoText" class="text-xs text-indigo-700 leading-relaxed font-medium">載入中...</p>
+                    <p id="infoText" class="text-xs text-indigo-700 leading-relaxed font-medium">計算中...</p>
                 </div>
 
                 <div class="pt-4 space-y-3">
@@ -212,7 +214,7 @@
         </button>
 
         <div id="pdf-root" class="flex flex-col items-center w-full">
-            <!-- 頁面內容動態注入 -->
+            <!-- 題目內容 -->
         </div>
     </main>
 
@@ -245,7 +247,7 @@
             const pages = Math.ceil(q / perPage);
             document.getElementById('infoText').innerHTML = `
                 • 每頁 A4 將排列 <b>${perPage}</b> 題。<br>
-                • 總計生成 <b>${pages}</b> 頁內容。
+                • 總計生成 <b>${pages}</b> 頁 PDF。
             `;
             return perPage;
         }
@@ -254,7 +256,6 @@
             const canvas = document.createElement('canvas');
             const ctx = canvas.getContext('2d');
             
-            // 根據卡片物理高度動態調整畫布解析度 (以 px 為單位)
             const w = 300;
             const h = Math.max(120, cardH - 120); 
             
@@ -268,17 +269,16 @@
             ctx.textAlign = 'center';
             ctx.textBaseline = 'middle';
             
-            // 智慧縮放：如果卡片空間不夠，自動縮小字體
+            // 智慧縮放字體
             const scaleDown = Math.min(1, (h * 0.75) / fSize);
             const finalFSize = fSize * scaleDown;
             ctx.font = `bold ${finalFSize}px "Arial", sans-serif`;
 
             const cx = w/2, cy = h/2;
             
-            // 易 (0%) 模式下，擴散到邊緣的安全半徑
-            const safeRX = (w / 2) - (finalFSize * 0.5);
-            const safeRY = (h / 2) - (finalFSize * 0.5);
-            
+            // 安全半徑計算：難度 0% 時完全不重疊
+            const safeRX = (w / 2) - (finalFSize * 0.6);
+            const safeRY = (h / 2) - (finalFSize * 0.6);
             const spreadRatio = (1 - (chaosLevel / 100));
 
             const colors = [...COLORS].sort(() => Math.random() - 0.5);
@@ -286,10 +286,13 @@
             digits.forEach((d, i) => {
                 ctx.save();
                 const angle = (i / digits.length) * Math.PI * 2;
+                
+                // 根據 chaosLevel 控制半徑縮放
                 let px = cx + Math.cos(angle) * safeRX * spreadRatio;
                 let py = cy + Math.sin(angle) * safeRY * spreadRatio;
 
-                const jitter = (chaosLevel / 100) * (finalFSize * 0.25);
+                // 抖動強度隨難度增加
+                const jitter = (chaosLevel / 100) * (finalFSize * 0.2);
                 px += (Math.random() - 0.5) * jitter;
                 py += (Math.random() - 0.5) * jitter;
 
@@ -316,8 +319,7 @@
             root.innerHTML = '';
             let page, grid, pageAnswers = [];
 
-            // A4 可用高度 (mm) 約 250mm
-            const usableH = 240; 
+            const usableH = 230; 
             const rows = Math.ceil(perPage / 2);
             const cardHmm = usableH / rows;
 
@@ -326,7 +328,7 @@
                     // 加入上一頁解答
                     if (page && pageAnswers.length > 0) {
                         const footerAnswers = document.createElement('div');
-                        footerAnswers.className = "page-footer-answers text-slate-300";
+                        footerAnswers.className = "page-footer-answers";
                         footerAnswers.innerHTML = `<span>解答區：</span>` + pageAnswers.map(ans => `<span>(${ans.qIdx}) ${ans.digits}</span>`).join('');
                         page.appendChild(footerAnswers);
                         pageAnswers = [];
@@ -339,7 +341,7 @@
                         const header = document.createElement('div');
                         header.className = "mb-4 border-b-4 border-indigo-600 pb-2";
                         header.innerHTML = `
-                            <h1 class="text-2xl font-bold text-slate-800 tracking-tight">數字重疊挑戰遊戲</h1>
+                            <h1 class="text-2xl font-bold text-slate-800">數字重疊挑戰遊戲</h1>
                             <p class="text-slate-500 text-sm font-bold">規則：找出框中疊在一起的彩色數字，並填寫在空格中。</p>
                         `;
                         page.appendChild(header);
@@ -363,7 +365,6 @@
                 cardLabel.innerText = `題目 ${i+1}`;
                 card.appendChild(cardLabel);
 
-                // 卡片高度轉換為畫布參考像素
                 const cardHPx = cardHmm * 3.7; 
 
                 card.appendChild(drawNumbers(nums, fSize, chaos, cardHPx));
@@ -388,28 +389,28 @@
         async function exportPDF() {
             const btn = document.getElementById('dlBtn');
             const originalHtml = btn.innerHTML;
-            btn.innerHTML = `正在生成 PDF...`;
+            btn.innerHTML = `正在生成對稱 PDF...`;
             btn.disabled = true;
 
             const element = document.getElementById('pdf-root');
-            const containers = document.querySelectorAll('.preview-container');
-
+            
+            // 匯出前強制置中排版
+            document.body.classList.add('export-mode');
             window.scrollTo(0,0);
-            containers.forEach((c) => {
-                c.style.margin = '0 auto';
-                c.style.boxShadow = 'none';
-            });
 
             const opt = {
                 margin: 0,
-                filename: '疊疊樂數字辨識訓練.pdf',
-                image: { type: 'jpeg', quality: 0.98 },
+                filename: '疊疊樂數字練習卷.pdf',
+                image: { type: 'jpeg', quality: 1.0 },
                 html2canvas: { 
                     scale: 3, 
                     useCORS: true, 
-                    width: 794,
+                    width: 794, // 強制鎖定 A4 寬度像素 (96dpi)
                     windowWidth: 794,
+                    x: 0, 
+                    y: 0,
                     scrollY: 0,
+                    scrollX: 0,
                     logging: false
                 },
                 jsPDF: { unit: 'mm', format: 'a4', orientation: 'portrait', compress: true },
@@ -423,9 +424,7 @@
             } finally {
                 btn.innerHTML = originalHtml;
                 btn.disabled = false;
-                containers.forEach(c => {
-                    c.style.margin = '30px auto';
-                });
+                document.body.classList.remove('export-mode');
             }
         }
 
